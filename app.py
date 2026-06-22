@@ -140,7 +140,7 @@ try:
             st.plotly_chart(fig_squad, use_container_width=True)
 
     # ==========================================
-    # ВКЛАДКА 2: DORA METRICS (КЛАССИЧЕСКИЙ РАСЧЕТ)
+    # ВКЛАДКА 2: DORA METRICS (ИСПРАВЛЕННЫЙ ВАРИАНТ)
     # ==========================================
     with tab2:
         df_deployments = df_filtered[df_filtered['to_status'] == 'Done'].copy()
@@ -163,14 +163,12 @@ try:
             elif lead_time_median < 250: rating_lt = "High 🟢"
             else: rating_lt = "Medium 🟡"
             
-            # 3. Классический КРИТЕРИЙ CFR: Отношение Багов к Сториз в рамках выбранных фильтров
+            # 3. Классический CFR: Отношение Багов к Сториз
             total_stories = df_filtered[df_filtered['issue_type'] == 'Story']['issue_id'].nunique()
             total_bugs = df_filtered[df_filtered['issue_type'] == 'Bug']['issue_id'].nunique()
             
-            # Если истории есть, считаем классический процент брака
             if total_stories > 0:
                 cfr_value = (total_bugs / total_stories) * 100
-                # Обрезаем верхний предел для визуальной адекватности
                 cfr_value = min(cfr_value, 100.0)
             else:
                 cfr_value = 0.0
@@ -205,7 +203,7 @@ try:
             st.metric(T["dora_lt"], f"{lead_time_median:.1f} h" if lang == "ENG" else f"{lead_time_median:.1f} ч")
             st.markdown(f"**{T['dora_rating']}** `{rating_lt}`")
             
-        st.markdown("---\")
+        st.markdown("---")
         
         with row2_col1:
             st.metric(T["dora_cfr"], f"{cfr_value:.2f}%")
@@ -215,7 +213,7 @@ try:
             st.metric(T["dora_mttr"], f"{mttr_median:.1f} h" if lang == "ENG" else f"{mttr_median:.1f} ч")
             st.markdown(f"**{T['dora_rating']}** `{rating_mttr}`")
             
-        st.markdown("---\")
+        st.markdown("---")
         
         if not df_deployments.empty:
             st.subheader("📈" + (" Deployment Activity Timeline" if lang == "ENG" else " Динамика релизов по дням"))
