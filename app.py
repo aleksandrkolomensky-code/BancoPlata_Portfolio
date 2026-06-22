@@ -69,17 +69,22 @@ def load_data():
     users = pd.read_csv('users.csv')
     issues = pd.read_csv('issues.csv')
     changelogs = pd.read_csv('changelogs.csv')
+    
+    # Жесткое приведение типов дат при чтении
+    changelogs['changed_at'] = pd.to_datetime(changelogs['changed_at'])
     return users, issues, changelogs
 
 try:
     df_users, df_issues, df_changelogs = load_data()
     
+    # Объединяем витрину данных
     df_merged = df_changelogs.merge(df_issues, on='issue_id', how='left')
     df_merged = df_merged.merge(df_users, left_on='assignee_id', right_on='user_id', how='left')
     
     df_merged['squad'] = df_merged['squad'].fillna('Other')
     df_merged['issue_type'] = df_merged['issue_type'].fillna('Story')
     
+    # Настройки боковой панели
     st.sidebar.header("⚙️ Settings & Filters")
     lang = st.sidebar.radio(LANG_PACK["RU"]["filter_lang"], options=["ENG", "RU"], index=0)
     T = LANG_PACK[lang]
@@ -93,6 +98,7 @@ try:
     type_options = sorted(list(df_merged['issue_type'].unique()))
     selected_type = st.sidebar.multiselect(T["filter_type"], options=type_options, default=type_options)
     
+    # Фильтруем данные на основе выбора пользователя
     df_filtered = df_merged[(df_merged['squad'].isin(selected_squad)) & (df_merged['issue_type'].isin(selected_type))].copy()
     
     st.title(T["title"])
@@ -138,40 +144,45 @@ try:
             st.plotly_chart(fig_squad, use_container_width=True)
 
     # ==========================================
-    # ВКЛАДКА 2: DORA METRICS (ИСПРАВЛЕННАЯ ШКАЛА)
+    # ВКЛАДКА 2: DORA METRICS (СТАБИЛЬНЫЙ РАСЧЕТ)
     # ==========================================
     with tab2:
         df_deployments = df_filtered[df_filtered['to_status'] == 'Done'].copy()
         
         if not df_deployments.empty:
-            df_deployments['date'] = pd.to_datetime(df_deployments['changed_at']).dt.date
+            # Извлекаем чистую дату для группировки
+            df_deployments['date'] = df_deployments['changed_at'].dt.date
             unique_deployment_days = df_deployments['date'].nunique()
             
+            # 1. Бенчмарк Частоты деплоев
             if unique_deployment_days > 24: rating_df = "Elite 🌟"
-            elif unique_deployment_days > 18: rating_df = "High 🟢"
-            elif unique_deployment_days > 10: rating_df = "Medium 🟡"
+            elif unique_deployment_days > 15: rating_df = "High 🟢"
+            elif unique_deployment_days > 8: rating_df = "Medium 🟡"
             else: rating_df = "Low 🔴"
             
+            # 2. Lead Time for Changes (Медиана полного цикла жизни задач)
             df_lead_time = df_filtered.groupby('issue_id')['hours_spent'].sum().reset_index()
             lead_time_median = float(df_lead_time['hours_spent'].median())
             
-            if lead_time_median < 100: rating_lt = "Elite 🌟"
-            elif lead_time_median < 200: rating_lt = "High 🟢"
+            if lead_time_median < 120: rating_lt = "Elite 🌟"
+            elif lead_time_median < 250: rating_lt = "High 🟢"
             else: rating_lt = "Medium 🟡"
             
+            # 3. Change Failure Rate (Процент сбойных релизов, где застряли на QA / релизе)
             total_deploys = len(df_deployments)
-            failed_deploys = len(df_filtered[(df_filtered['from_status'].isin(['QA In Progress', 'Ready for Release'])) & (df_filtered['hours_spent'] > 40.0)]['issue_id'].unique())
-            failed_deploys = min(failed_deploys, total_deploys)
+            failed_issues = df_filtered[(df_filtered['from_status'].isin(['QA In Progress', 'Ready for Release'])) & (df_filtered['hours_spent'] > 35.0)]['issue_id'].nunique()
+            failed_deploys = min(failed_issues, total_deploys)
             cfr_value = (failed_deploys / total_deploys * 100) if total_deploys > 0 else 0.0
             
             if cfr_value < 15.0: rating_cfr = "Elite 🌟"
-            elif cfr_value < 30.0: rating_cfr = "High 🟢"
+            elif cfr_value < 25.0: rating_cfr = "High 🟢"
             else: rating_cfr = "Medium/Low 🔴"
             
+            # 4. Time to Restore Service (MTTR по багам)
             df_bugs = df_filtered[df_filtered['issue_type'] == 'Bug'].groupby('issue_id')['hours_spent'].sum().reset_index()
             if not df_bugs.empty:
                 mttr_median = float(df_bugs['hours_spent'].median())
-                rating_mttr = "Elite 🌟" if mttr_median < 36 else "High 🟢"
+                rating_mttr = "Elite 🌟" if mttr_median < 48 else "High 🟢"
             else:
                 mttr_median = 0.0
                 rating_mttr = "N/A"
@@ -210,7 +221,6 @@ try:
             df_timeline = df_deployments.groupby('date').size().reset_index(name='Deployments Count')
             df_timeline = df_timeline.sort_values(by='date')
             
-            # Строим график по чистым датам релизов
             fig_line = px.line(df_timeline, x='date', y='Deployments Count', labels={'date': 'Date', 'Deployments Count': 'Releases Count'}, color_discrete_sequence=['#228B22'])
             st.plotly_chart(fig_line, use_container_width=True)
 
