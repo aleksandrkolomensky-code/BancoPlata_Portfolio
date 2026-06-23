@@ -66,21 +66,21 @@ LANG_PACK = {
 # ==========================================
 @st.cache_data
 def load_data():
-    users = pd.read_csv('users.csv')
-    issues = pd.read_csv('issues.csv')
-    changelogs = pd.read_csv('changelogs.csv')
+    users = pd.read_csv("users.csv")
+    issues = pd.read_csv("issues.csv")
+    changelogs = pd.read_csv("changelogs.csv")
     
-    changelogs['changed_at'] = pd.to_datetime(changelogs['changed_at'])
+    changelogs["changed_at"] = pd.to_datetime(changelogs["changed_at"])
     return users, issues, changelogs
 
 try:
     df_users, df_issues, df_changelogs = load_data()
     
-    df_merged = df_changelogs.merge(df_issues, on='issue_id', how='left')
-    df_merged = df_merged.merge(df_users, left_on='assignee_id', right_on='user_id', how='left')
+    df_merged = df_changelogs.merge(df_issues, on="issue_id", how="left")
+    df_merged = df_merged.merge(df_users, left_on="assignee_id", right_on="user_id", how="left")
     
-    df_merged['squad'] = df_merged['squad'].fillna('Other')
-    df_merged['issue_type'] = df_merged['issue_type'].fillna('Story')
+    df_merged["squad"] = df_merged["squad"].fillna("Other")
+    df_merged["issue_type"] = df_merged["issue_type"].fillna("Story")
     
     st.sidebar.header("⚙️ Settings & Filters")
     lang = st.sidebar.radio(LANG_PACK["RU"]["filter_lang"], options=["ENG", "RU"], index=0)
@@ -89,13 +89,14 @@ try:
     st.sidebar.markdown("---")
     st.sidebar.subheader(T["sidebar_filters"])
     
-    squad_options = sorted(list(df_merged['squad'].unique()))
+    squad_options = sorted(list(df_merged["squad"].unique()))
     selected_squad = st.sidebar.multiselect(T["filter_squad"], options=squad_options, default=squad_options)
     
-    type_options = sorted(list(df_merged['issue_type'].unique()))
+    type_options = sorted(list(df_merged["issue_type"].unique()))
     selected_type = st.sidebar.multiselect(T["filter_type"], options=type_options, default=type_options)
     
-    df_filtered = df_merged[(df_merged['squad'].isin(selected_squad)) & (df_merged['issue_type'].isin(selected_type))].copy()
+    # Фильтруем данные для Kanban-аналитики (учитываем сквады и типы задач)
+    df_filtered = df_merged[(df_merged["squad"].isin(selected_squad)) & (df_merged["issue_type"].isin(selected_type))].copy()
     
     st.title(T["title"])
     st.markdown("---")
@@ -106,9 +107,9 @@ try:
     # ВКЛАДКА 1: KANBAN & FLOW EFFICIENCY
     # ==========================================
     with tab1:
-        active_statuses = ['Analysis', 'In Progress', 'Code Review', 'QA In Progress']
-        total_active = df_filtered[df_filtered['from_status'].isin(active_statuses)]['hours_spent'].sum()
-        total_wait = df_filtered[~df_filtered['from_status'].isin(active_statuses)]['hours_spent'].sum()
+        active_statuses = ["Analysis", "In Progress", "Code Review", "QA In Progress"]
+        total_active = df_filtered[df_filtered["from_status"].isin(active_statuses)]["hours_spent"].sum()
+        total_wait = df_filtered[~df_filtered["from_status"].isin(active_statuses)]["hours_spent"].sum()
         flow_efficiency = (total_active / (total_active + total_wait)) * 100 if (total_active + total_wait) > 0 else 0
         
         col1, col2, col3 = st.columns(3)
@@ -121,19 +122,19 @@ try:
         
         with col_chart1:
             st.subheader(T["chart_wait_title"])
-            wait_stages = ['Ready for Dev', 'Ready for Code Review', 'Ready for QA', 'Ready for Release']
-            df_wait = df_filtered[df_filtered['from_status'].isin(wait_stages)]
-            df_wait_grouped = df_wait.groupby('from_status')['hours_spent'].sum().reset_index()
-            fig_bar = px.bar(df_wait_grouped, x='from_status', y='hours_spent', labels={'from_status': T["chart_wait_x"], 'hours_spent': T["chart_wait_y"]}, color='from_status', color_discrete_sequence=px.colors.sequential.Oranges_r)
+            wait_stages = ["Ready for Dev", "Ready for Code Review", "Ready for QA", "Ready for Release"]
+            df_wait = df_filtered[df_filtered["from_status"].isin(wait_stages)]
+            df_wait_grouped = df_wait.groupby("from_status")["hours_spent"].sum().reset_index()
+            fig_bar = px.bar(df_wait_grouped, x="from_status", y="hours_spent", labels={"from_status": T["chart_wait_x"], "hours_spent": T["chart_wait_y"]}, color="from_status", color_discrete_sequence=px.colors.sequential.Oranges_r)
             st.plotly_chart(fig_bar, use_container_width=True)
             
         with col_chart2:
             st.subheader(T["chart_squad_title"])
             squad_data = []
             for squad in selected_squad:
-                df_sq = df_filtered[df_filtered['squad'] == squad]
-                act = df_sq[df_sq['from_status'].isin(active_statuses)]['hours_spent'].sum()
-                wt = df_sq[~df_sq['from_status'].isin(active_statuses)]['hours_spent'].sum()
+                df_sq = df_filtered[df_filtered["squad"] == squad]
+                act = df_sq[df_sq["from_status"].isin(active_statuses)]["hours_spent"].sum()
+                wt = df_sq[~df_sq["from_status"].isin(active_statuses)]["hours_spent"].sum()
                 eff = (act / (act + wt)) * 100 if (act + wt) > 0 else 0
                 squad_data.append({T["chart_squad_x"]: squad, T["chart_squad_y"]: round(eff, 2)})
             fig_squad = px.bar(pd.DataFrame(squad_data), x=T["chart_squad_x"], y=T["chart_squad_y"], range_y=[0, 100], color=T["chart_squad_y"], color_continuous_scale=px.colors.sequential.Viridis)
@@ -143,11 +144,15 @@ try:
     # ВКЛАДКА 2: DORA METRICS (ИСПРАВЛЕННЫЙ ВАРИАНТ)
     # ==========================================
     with tab2:
-        df_deployments = df_filtered[df_filtered['to_status'] == 'Done'].copy()
+        # Для DORA-метрик мы полностью игнорируем фильтр по типам задач.
+        # Они всегда рассчитываются на основе всех типов задач для выбранных сквадов.
+        df_dora_filtered = df_merged[df_merged["squad"].isin(selected_squad)].copy()
+        
+        df_deployments = df_dora_filtered[df_dora_filtered["to_status"] == "Done"].copy()
         
         if not df_deployments.empty:
-            df_deployments['date'] = df_deployments['changed_at'].dt.date
-            unique_deployment_days = df_deployments['date'].nunique()
+            df_deployments["date"] = df_deployments["changed_at"].dt.date
+            unique_deployment_days = df_deployments["date"].nunique()
             
             # 1. Deployment Frequency rating
             if unique_deployment_days > 24: rating_df = "Elite 🌟"
@@ -155,17 +160,17 @@ try:
             elif unique_deployment_days > 8: rating_df = "Medium 🟡"
             else: rating_df = "Low 🔴"
             
-            # 2. Lead Time for Changes
-            df_lead_time = df_filtered.groupby('issue_id')['hours_spent'].sum().reset_index()
-            lead_time_median = float(df_lead_time['hours_spent'].median())
+            # 2. Lead Time for Changes (берем все типы задач)
+            df_lead_time = df_dora_filtered.groupby("issue_id")["hours_spent"].sum().reset_index()
+            lead_time_median = float(df_lead_time["hours_spent"].median())
             
             if lead_time_median < 120: rating_lt = "Elite 🌟"
             elif lead_time_median < 250: rating_lt = "High 🟢"
             else: rating_lt = "Medium 🟡"
             
             # 3. Классический CFR: Отношение Багов к Сториз
-            total_stories = df_filtered[df_filtered['issue_type'] == 'Story']['issue_id'].nunique()
-            total_bugs = df_filtered[df_filtered['issue_type'] == 'Bug']['issue_id'].nunique()
+            total_stories = df_dora_filtered[df_dora_filtered["issue_type"] == "Story"]["issue_id"].nunique()
+            total_bugs = df_dora_filtered[df_dora_filtered["issue_type"] == "Bug"]["issue_id"].nunique()
             
             if total_stories > 0:
                 cfr_value = (total_bugs / total_stories) * 100
@@ -178,10 +183,10 @@ try:
             else: rating_cfr = "Medium/Low 🔴"
             
             # 4. Time to Restore Service (MTTR по багам)
-            df_bugs_time = df_filtered[df_filtered['issue_type'] == 'Bug'].groupby('issue_id')['hours_spent'].sum().reset_index()
+            df_bugs_time = df_dora_filtered[df_dora_filtered["issue_type"] == "Bug"].groupby("issue_id")["hours_spent"].sum().reset_index()
             if not df_bugs_time.empty:
-                mttr_median = float(df_bugs_time['hours_spent'].median())
-                rating_mttr = "Elite 🌟" if mttr_median < 48 else "High 🟢"
+                mttr_median = float(df_bugs_time["hours_spent"].median())
+                rating_mttr = "Elite 🌟" if mttr_median < 24 else ("High 🟢" if mttr_median < 48 else "Medium 🟡")
             else:
                 mttr_median = 0.0
                 rating_mttr = "N/A"
@@ -217,10 +222,10 @@ try:
         
         if not df_deployments.empty:
             st.subheader("📈" + (" Deployment Activity Timeline" if lang == "ENG" else " Динамика релизов по дням"))
-            df_timeline = df_deployments.groupby('date').size().reset_index(name='Deployments Count')
-            df_timeline = df_timeline.sort_values(by='date')
+            df_timeline = df_deployments.groupby("date").size().reset_index(name="Deployments Count")
+            df_timeline = df_timeline.sort_values(by="date")
             
-            fig_line = px.line(df_timeline, x='date', y='Deployments Count', labels={'date': 'Date', 'Deployments Count': 'Releases Count'}, color_discrete_sequence=['#228B22'])
+            fig_line = px.line(df_timeline, x="date", y="Deployments Count", labels={"date": "Date", "Deployments Count": "Releases Count"}, color_discrete_sequence=["#228B22"])
             st.plotly_chart(fig_line, use_container_width=True)
 
 except Exception as e:
